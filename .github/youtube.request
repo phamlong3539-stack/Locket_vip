@@ -1,0 +1,688 @@
+/**
+ * ==============================================================================
+ * YouTube Request Interceptor (youtube.request.js)
+ * Clean, Deobfuscated & Production-Ready ES6+ Implementation
+ * 
+ * Target: YouTube Onesie / UMP Initplayback & LogEvent Request Interceptor
+ * Compatible with: Surge, Loon, Quantumult X, Stash, Shadowrocket
+ * Original Author / Upstream: Maasea (YouTube AdBlock / Init-Stream Project)
+ * ==============================================================================
+ */
+
+// ==============================================================================
+// 1. CONSTANTS & STORAGE KEYS
+// ==============================================================================
+const WORKER_URL = "https://init-stream.maasea.workers.dev/";
+
+const STORAGE_KEYS = {
+  config: "YouTubeConfig",
+  advertiseInfo: "YouTubeAdvertiseInfo"
+};
+
+const PLATFORM_KEYS = {
+  music: "youtubeMusic",
+  video: "youtube"
+};
+
+const HEADERS = {
+  HOT_HASH: "x-youtube-hot-hash-data",
+  CONTENT_ENCODING: "content-encoding"
+};
+
+// ==============================================================================
+// 2. BYTE & BASE64 UTILITIES
+// ==============================================================================
+const BASE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".split("");
+const BASE64_LOOKUP = new Uint8Array(256);
+for (let i = 0; i < BASE64_ALPHABET.length; i++) {
+  BASE64_LOOKUP[BASE64_ALPHABET[i].charCodeAt(0)] = i;
+}
+BASE64_LOOKUP["-".charCodeAt(0)] = BASE64_ALPHABET.indexOf("+");
+BASE64_LOOKUP["_".charCodeAt(0)] = BASE64_ALPHABET.indexOf("/");
+
+/**
+ * Decodes a base64 string to a Uint8Array.
+ * @param {string} b64 
+ * @returns {Uint8Array}
+ */
+function base64ToBytes(b64) {
+  let length = (b64.length * 3) / 4;
+  if (b64[b64.length - 1] === "=") length--;
+  if (b64[b64.length - 2] === "=") length--;
+
+  const bytes = new Uint8Array(length);
+  let byteIndex = 0;
+  let state = 0;
+  let buffer = 0;
+
+  for (let i = 0; i < b64.length; i++) {
+    const char = b64[i];
+    let val = BASE64_LOOKUP[char.charCodeAt(0)];
+
+    if (val === undefined) {
+      if (char === "=") state = 0;
+      if (char === "\n" || char === "\r" || char === "\t" || char === " ") continue;
+      continue;
+    }
+
+    switch (state) {
+      case 0:
+        buffer = val;
+        state = 1;
+        break;
+      case 1:
+        bytes[byteIndex++] = (buffer << 2) | ((val & 0x30) >> 4);
+        buffer = val;
+        state = 2;
+        break;
+      case 2:
+        bytes[byteIndex++] = ((buffer & 0x0f) << 4) | ((val & 0x3c) >> 2);
+        buffer = val;
+        state = 3;
+        break;
+      case 3:
+        bytes[byteIndex++] = ((buffer & 0x03) << 6) | val;
+        state = 0;
+        break;
+    }
+  }
+
+  return bytes.subarray(0, byteIndex);
+}
+
+/**
+ * Fast byte-by-byte equality check between two Uint8Arrays.
+ * @param {Uint8Array} a 
+ * @param {Uint8Array} b 
+ * @returns {boolean}
+ */
+function bytesEqual(a, b) {
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+// ==============================================================================
+// 3. PROTOBUF WIRE READER & MODELS (Zero-Dependency)
+// ==============================================================================
+const WIRE_VARINT = 0;
+const WIRE_FIXED64 = 1;
+const WIRE_BYTES = 2;
+const WIRE_FIXED32 = 5;
+
+class ProtobufReader {
+  constructor(buffer) {
+    this.buf = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+    this.pos = 0;
+    this.len = this.buf.length;
+  }
+
+  hasNext() {
+    return this.pos < this.len;
+  }
+
+  tag() {
+    const tag = this.uint32();
+    return [tag >>> 3, tag & 7];
+  }
+
+  uint32() {
+    let result = 0;
+    result = (this.buf[this.pos] & 127) >>> 0;
+    if ((this.buf[this.pos++] & 128) === 0) return result;
+    result |= ((this.buf[this.pos] & 127) << 7) >>> 0;
+    if ((this.buf[this.pos++] & 128) === 0) return result;
+    result |= ((this.buf[this.pos] & 127) << 14) >>> 0;
+    if ((this.buf[this.pos++] & 128) === 0) return result;
+    result |= ((this.buf[this.pos] & 127) << 21) >>> 0;
+    if ((this.buf[this.pos++] & 128) === 0) return result;
+    result |= ((this.buf[this.pos] & 15) << 28) >>> 0;
+    if ((this.buf[this.pos++] & 128) === 0) return result;
+    return result;
+  }
+
+  bytes() {
+    const length = this.uint32();
+    const start = this.pos;
+    const end = this.pos + length;
+    if (end > this.len) throw new Error("Protobuf wire buffer underrun");
+    this.pos = end;
+    return this.buf.subarray(start, end);
+  }
+
+  skip(wireType) {
+    switch (wireType) {
+      case WIRE_VARINT:
+        this.uint32();
+        break;
+      case WIRE_FIXED64:
+        this.pos += 8;
+        break;
+      case WIRE_BYTES:
+        this.pos += this.uint32();
+        break;
+      case WIRE_FIXED32:
+        this.pos += 4;
+        break;
+      default:
+        throw new Error(`Unsupported Protobuf wire type: ${wireType}`);
+    }
+  }
+}
+
+/**
+ * YouTube Onesie Protobuf Models
+ */
+const EncryptedInnertubeRequest = {
+  decode(bytes) {
+    const reader = new ProtobufReader(bytes);
+    const msg = {
+      encryptedOnesieInnertubeRequest: new Uint8Array(0),
+      encryptedClientKey: new Uint8Array(0),
+      iv: new Uint8Array(0),
+      hmac: new Uint8Array(0)
+    };
+
+    while (reader.hasNext()) {
+      const [fieldNo, wireType] = reader.tag();
+      switch (fieldNo) {
+        case 2: // encryptedOnesieInnertubeRequest
+          msg.encryptedOnesieInnertubeRequest = reader.bytes();
+          break;
+        case 5: // encryptedClientKey
+          msg.encryptedClientKey = reader.bytes();
+          break;
+        case 6: // iv
+          msg.iv = reader.bytes();
+          break;
+        case 7: // hmac
+          msg.hmac = reader.bytes();
+          break;
+        default:
+          reader.skip(wireType);
+          break;
+      }
+    }
+    return msg;
+  }
+};
+
+const OnesieRequest = {
+  decode(bytes) {
+    const reader = new ProtobufReader(bytes);
+    const msg = {
+      encryptedInnertubeRequest: null
+    };
+
+    while (reader.hasNext()) {
+      const [fieldNo, wireType] = reader.tag();
+      switch (fieldNo) {
+        case 3: // encryptedInnertubeRequest
+          msg.encryptedInnertubeRequest = EncryptedInnertubeRequest.decode(reader.bytes());
+          break;
+        default:
+          reader.skip(wireType);
+          break;
+      }
+    }
+    return msg;
+  }
+};
+
+// ==============================================================================
+// 4. CROSS-PLATFORM PROXY ENVIRONMENT ABSTRACTION LAYER
+// ==============================================================================
+class BaseEnvironment {
+  constructor(name, className, options = {}) {
+    this.name = name ?? "";
+    this.className = className ?? "";
+    this.isDebug = options?.debug ?? false;
+    this._times = new Map();
+    this.request = null;
+    this.response = null;
+
+    if (this.name) this.debug(`${this.name} Start`);
+    this.init();
+  }
+
+  static getInstance(name, options) {
+    let platform = "Surge";
+    if (typeof $loon !== "undefined") {
+      platform = "Loon";
+    } else if (typeof $task !== "undefined") {
+      platform = "QuanX";
+    }
+
+    if (!BaseEnvironment.instances[platform]) {
+      BaseEnvironment.instances[platform] = BaseEnvironment.classNames[platform](name, platform, options);
+    }
+    return BaseEnvironment.instances[platform];
+  }
+
+  createProxy(target) {
+    return new Proxy(target, {
+      get: (obj, prop) => this.getFn(obj, prop),
+      set: (obj, prop, val) => this.setFn(obj, prop, val)
+    });
+  }
+
+  getFn(obj, prop) {
+    return obj[prop];
+  }
+
+  setFn(obj, prop, val) {
+    obj[prop] = val;
+    return true;
+  }
+
+  getJSON(key, defaultVal = {}) {
+    const val = this.getVal(key);
+    return val ? JSON.parse(val) : defaultVal;
+  }
+
+  setJSON(obj, key) {
+    this.setVal(JSON.stringify(obj), key);
+  }
+
+  debug(msg) {
+    if (this.isDebug) {
+      console.log(typeof msg === "object" ? JSON.stringify(msg) : msg);
+    }
+  }
+
+  log(msg) {
+    console.log(typeof msg === "object" ? JSON.stringify(msg) : msg);
+  }
+
+  timeStart(label) {
+    this._times.set(label, Date.now());
+  }
+
+  timeEnd(label) {
+    if (this._times.has(label)) {
+      const elapsed = Date.now() - (this._times.get(label) ?? 0);
+      this.debug(`${label}: ${elapsed}ms`);
+      this._times.delete(label);
+    } else {
+      this.debug(`Timer with label ${label} does not exist.`);
+    }
+  }
+
+  exit() {
+    $done({});
+  }
+
+  reject() {
+    $done();
+  }
+
+  decodeParams(params) {
+    return params;
+  }
+}
+
+BaseEnvironment.instances = {};
+
+/**
+ * Surge Environment Adapter
+ */
+class SurgeEnvironment extends BaseEnvironment {
+  init() {
+    try {
+      this.request = this.createProxy($request);
+      this.response = this.createProxy($response);
+    } catch (e) {
+      this.debug(e.toString());
+    }
+  }
+
+  getFn(obj, prop) {
+    const mapped = SurgeEnvironment.clientAdapter[prop] || prop;
+    return super.getFn(obj, mapped);
+  }
+
+  setFn(obj, prop, val) {
+    const mapped = SurgeEnvironment.clientAdapter[prop] || prop;
+    return super.setFn(obj, mapped, val);
+  }
+
+  getVal(key) {
+    return $persistentStore.read(key);
+  }
+
+  setVal(val, key) {
+    $persistentStore.write(val, key);
+  }
+
+  msg(title = this.name, subtitle = "", body = "", openUrl) {
+    const extra = openUrl ? { action: { "open-url": openUrl } } : {};
+    $notification.post(title, subtitle, body, extra);
+  }
+
+  done(options) {
+    $done(options);
+  }
+}
+
+SurgeEnvironment.clientAdapter = {
+  bodyBytes: "body"
+};
+
+/**
+ * Loon Environment Adapter
+ */
+class LoonEnvironment extends SurgeEnvironment {
+  decodeParams(params) {
+    if (typeof $argument !== "undefined") {
+      for (const key of Object.keys(params)) {
+        const val = $argument?.[key];
+        if (val !== undefined) {
+          params[key] = val;
+        }
+      }
+    }
+    return params;
+  }
+}
+
+/**
+ * Quantumult X Environment Adapter
+ */
+class QuanXEnvironment extends BaseEnvironment {
+  static transferBodyBytes(bytes, targetType) {
+    if (bytes instanceof ArrayBuffer) {
+      return targetType === "Uint8Array" ? new Uint8Array(bytes) : bytes;
+    }
+    if (bytes instanceof Uint8Array && targetType === "ArrayBuffer") {
+      return bytes.buffer.slice(bytes.byteOffset, bytes.byteLength + bytes.byteOffset);
+    }
+    return bytes;
+  }
+
+  init() {
+    try {
+      this.request = this.createProxy($request);
+      this.response = this.createProxy($response);
+    } catch (e) {
+      this.debug(e.toString());
+    }
+  }
+
+  getFn(obj, prop) {
+    const mapped = QuanXEnvironment.clientAdapter[prop] || prop;
+    let val = super.getFn(obj, mapped);
+    if (prop === "bodyBytes") {
+      val = QuanXEnvironment.transferBodyBytes(val, "Uint8Array");
+    }
+    return val;
+  }
+
+  setFn(obj, prop, val) {
+    const mapped = QuanXEnvironment.clientAdapter[prop] || prop;
+    let finalVal = val;
+    if (prop === "bodyBytes") {
+      finalVal = QuanXEnvironment.transferBodyBytes(finalVal, "Uint8Array");
+    }
+    return super.setFn(obj, mapped, finalVal);
+  }
+
+  getVal(key) {
+    return $prefs.valueForKey(key);
+  }
+
+  setVal(val, key) {
+    $prefs.setValueForKey(val, key);
+  }
+
+  msg(title = this.name, subtitle = "", body = "", openUrl) {
+    const extra = openUrl ? { "open-url": openUrl } : {};
+    $notify(title, subtitle, body, extra);
+  }
+
+  done(options) {
+    const raw = options.response ?? options;
+    const finalRes = {};
+
+    for (const [key, val] of Object.entries(raw)) {
+      if (key === "status") {
+        finalRes.status = `HTTP/1.1 ${val}`;
+      } else if (key === "bodyBytes") {
+        finalRes.bodyBytes = QuanXEnvironment.transferBodyBytes(val, "ArrayBuffer");
+      } else {
+        finalRes[key] = val;
+      }
+    }
+    $done(finalRes);
+  }
+}
+
+QuanXEnvironment.clientAdapter = {
+  id: "sessionIndex",
+  status: "statusCode"
+};
+
+// Register platform classes
+BaseEnvironment.classNames = {
+  Surge: (name, cls, opt) => new SurgeEnvironment(name, cls, opt),
+  Loon: (name, cls, opt) => new LoonEnvironment(name, cls, opt),
+  QuanX: (name, cls, opt) => new QuanXEnvironment(name, cls, opt)
+};
+
+// ==============================================================================
+// 5. YOUTUBE REQUEST INTERCEPTOR BUSINESS LOGIC
+// ==============================================================================
+const env = BaseEnvironment.getInstance("YouTube");
+
+/**
+ * Detects whether the request originates from YouTube Music.
+ * @returns {boolean}
+ */
+function isMusicApp() {
+  const ua = env.request.headers["user-agent"] ?? env.request.headers["User-Agent"] ?? "";
+  return ua.includes("music");
+}
+
+/**
+ * Gets the storage platform partition key ("youtubeMusic" or "youtube").
+ * @returns {string}
+ */
+function getPlatformKey() {
+  return isMusicApp() ? PLATFORM_KEYS.music : PLATFORM_KEYS.video;
+}
+
+/**
+ * Parses runtime blocking preferences.
+ * @returns {object}
+ */
+function getInterceptParams() {
+  const defaults = {
+    captionLang: "off",
+    blockUpload: false,
+    blockImmersive: true,
+    blockShorts: false
+  };
+  return env.decodeParams(defaults);
+}
+
+/**
+ * Reads YouTube config from persistent storage.
+ * @returns {object}
+ */
+function loadConfig() {
+  return env.getJSON(STORAGE_KEYS.config) ?? {};
+}
+
+/**
+ * Persists updated YouTube config into storage.
+ * @param {object} config 
+ */
+function saveConfig(config) {
+  env.debug(`saveKeyConfig: ${JSON.stringify(config)}`);
+  env.setJSON(config, STORAGE_KEYS.config);
+}
+
+/**
+ * Removes cached platform configuration for a specific platform.
+ * @param {object} config 
+ * @param {string} platformKey 
+ * @returns {boolean}
+ */
+function deletePlatformConfig(config, platformKey) {
+  if (config[platformKey]) {
+    delete config[platformKey];
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Builds the redirection URL pointing to the Cloudflare Worker.
+ * @param {string} workerUrl 
+ * @param {string} clientKey 
+ * @param {string} targetUrl 
+ * @param {object} params 
+ * @returns {string}
+ */
+function buildWorkerUrl(workerUrl, clientKey, targetUrl, params) {
+  const query = [
+    `ck=${encodeURIComponent(clientKey)}`,
+    `target=${encodeURIComponent(targetUrl)}`
+  ];
+  for (const [k, v] of Object.entries(params)) {
+    query.push(`${k}=${encodeURIComponent(String(v))}`);
+  }
+  return `${workerUrl}?${query.join("&")}`;
+}
+
+/**
+ * Intercepts and cleans headers for "log_event" requests.
+ * @param {object} ctx 
+ * @returns {object}
+ */
+function handleLogEvent(ctx) {
+  const hasCachedClientKey = !!ctx.config[ctx.platformKey]?.clientKey;
+  const headers = { ...ctx.headers };
+
+  for (const headerName of Object.keys(headers)) {
+    const lower = headerName.toLowerCase();
+    if (lower === HEADERS.CONTENT_ENCODING || (!hasCachedClientKey && lower === HEADERS.HOT_HASH)) {
+      delete headers[headerName];
+    }
+  }
+
+  return {
+    action: "headers",
+    headers,
+    config: ctx.config,
+    changed: false
+  };
+}
+
+/**
+ * Intercepts "initplayback" requests, validates encryptedClientKey,
+ * and redirects to the Cloudflare Worker or resets the cache.
+ * @param {object} ctx 
+ * @returns {object}
+ */
+function handleInitPlayback(ctx) {
+  const platformConfig = ctx.config[ctx.platformKey];
+  const clientKey = platformConfig?.clientKey;
+  const encryptKey = platformConfig?.encryptKey;
+
+  if (encryptKey && clientKey && ctx.bodyBytes != null) {
+    try {
+      const onesie = OnesieRequest.decode(ctx.bodyBytes);
+      const encryptedClientKey = onesie.encryptedInnertubeRequest?.encryptedClientKey;
+
+      if (encryptedClientKey && bytesEqual(encryptedClientKey, base64ToBytes(encryptKey))) {
+        return {
+          action: "redirect",
+          redirectUrl: buildWorkerUrl(ctx.workerUrl, clientKey, ctx.url, ctx.params),
+          config: ctx.config,
+          changed: false
+        };
+      }
+    } catch (err) {
+      env.debug(`Failed to decode OnesieRequest protobuf: ${err}`);
+    }
+  }
+
+  // If keys do not match or cannot be parsed, evict cache and force fallback to v1/player
+  return {
+    action: "empty",
+    config: ctx.config,
+    changed: deletePlatformConfig(ctx.config, ctx.platformKey)
+  };
+}
+
+/**
+ * Dispatches the request depending on URL pattern.
+ * @param {object} ctx 
+ * @returns {object}
+ */
+function routeRequest(ctx) {
+  if (ctx.url.includes("log_event")) {
+    return handleLogEvent(ctx);
+  }
+  if (ctx.url.includes("initplayback")) {
+    return handleInitPlayback(ctx);
+  }
+  return {
+    action: "exit",
+    config: ctx.config,
+    changed: false
+  };
+}
+
+// ==============================================================================
+// 6. MAIN EXECUTION ENTRYPOINT
+// ==============================================================================
+function main() {
+  const ctx = {
+    url: env.request.url,
+    headers: env.request.headers,
+    bodyBytes: env.request.bodyBytes,
+    config: loadConfig(),
+    params: getInterceptParams(),
+    platformKey: getPlatformKey(),
+    workerUrl: WORKER_URL
+  };
+
+  const result = routeRequest(ctx);
+
+  if (result.changed) {
+    saveConfig(result.config);
+  }
+
+  switch (result.action) {
+    case "headers":
+      env.debug("log_event: Stripped content-encoding and conditionally removed hot-hash header");
+      env.done({ headers: result.headers });
+      break;
+
+    case "redirect":
+      env.debug("initplayback: Cached key matched. Redirecting to Cloudflare Worker to handle UMP stream");
+      $done({ url: result.redirectUrl });
+      break;
+
+    case "empty":
+      env.debug("initplayback: encryptedClientKey mismatched. Clearing cache & forcing fallback to v1/player");
+      $done({
+        response: {
+          status: 200,
+          headers: { "Content-Type": "text/plain" },
+          body: new Uint8Array()
+        }
+      });
+      break;
+
+    default:
+      env.exit();
+      break;
+  }
+}
+
+// Run
+main();
