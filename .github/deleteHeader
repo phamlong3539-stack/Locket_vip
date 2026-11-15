@@ -1,0 +1,32 @@
+/**
+ * Script can thiệp HTTP Request (Hỗ trợ Surge, Quantumult X, Loon, Shadowrocket)
+ * Mục đích: Xóa các header cache/ETag để ép máy chủ trả về nội dung đầy đủ (200 OK)
+ * thay vì phản hồi 304 Not Modified.
+ */
+
+const SCRIPT_VERSION = "V2.0.0";
+
+// Danh sách các header cache cần loại bỏ (viết thường để so sánh không phân biệt hoa thường)
+const HEADERS_TO_STRIP = [
+  "x-revenuecat-etag",
+  "if-none-match",
+  "if-modified-since",
+  "x-goog-if-none-match"
+];
+
+// Sao chép headers từ $request nếu tồn tại
+let modifiedHeaders =
+  typeof $request !== "undefined" && $request && $request.headers
+    ? Object.assign({}, $request.headers)
+    : {};
+
+// Xóa các header trùng khớp
+for (const key of Object.keys(modifiedHeaders)) {
+  if (HEADERS_TO_STRIP.includes(key.toLowerCase())) {
+    modifiedHeaders[key] = "";
+    delete modifiedHeaders[key];
+  }
+}
+
+// Trả về request đã chỉnh sửa cho client proxy
+$done({ headers: modifiedHeaders });
