@@ -1,0 +1,333 @@
+/**
+ * ==============================================================================
+ * Tên script: Locket Gold & Features Unlocked (Full Remote Config Interceptor)
+ * Tác giả gốc: MinhHiep08 (TikTok: @ltocamz | Instagram: @miinhhiep)
+ * Ứng dụng mục tiêu: Locket Widget (iOS & Android)
+ * Endpoint mục tiêu: Remote Config & Feature Flags (Firebase Remote Config / App Config)
+ * Tương thích Proxy: Surge, Quantumult X, Loon, Shadowrocket, Stash
+ * ==============================================================================
+ */
+
+// 1. CONSTANTS & SYSTEM CONFIGURATION
+const MY_VIDEO_DURATION = 45; // 45 giây
+const MAX_DURATION = MY_VIDEO_DURATION;
+const DURATION_STR = MY_VIDEO_DURATION.toString();
+const QUALITY_MBPS = 0.6;
+const MAX_SIZE_BYTES = 100 * 1024 * 1024; // 104,857,600 bytes = 100 MB
+const MAX_SIZE_BYTES_STR = MAX_SIZE_BYTES.toString();
+
+// 2. FEATURE GATES CONFIGURATION (BẬT TẤT CẢ TÍNH NĂNG GOLD & BETA)
+const FEATURE_GATES = {
+  app_icon_picker: "enabled",
+  camera_roll: "enabled",
+  camera_roll_video: "enabled",
+  camera_roll_video_30s: "enabled",
+  camera_roll_video_upload: "enabled",
+  camera_roll_video_upload_30s: "enabled",
+  camera_roll_longer_video: "enabled",
+  camera_roll_longer_video_30s: "enabled",
+  camera_theme: "enabled",
+  locket_views: "enabled",
+  long_captions: "enabled",
+  longer_video: "enabled",
+  longer_video_30s: "enabled",
+  extended_video_30s: "enabled",
+  photo_library_video: "enabled",
+  photo_library_video_30s: "enabled",
+  gallery_video: "enabled",
+  gallery_video_30s: "enabled",
+  can_upload_30s_video: "enabled",
+  can_record_30s_video: "enabled",
+  allow_longer_video_upload: "enabled",
+  longer_video_upload: "enabled",
+  unlimited_friends: "enabled",
+  priority_support: "enabled",
+  profile_badge: "enabled",
+  profileBadge: "enabled",
+  gold_since_badge: "enabled",
+  goldSinceBadge: "enabled",
+  gold_badge_profile_menu: "enabled",
+  remove_ads: "enabled",
+  video: "enabled",
+  video_15s: "enabled",
+  video_30s: "enabled",
+  video_40s: "enabled",
+  video_60s: "enabled",
+  video_upload: "enabled",
+  video_upload_30s: "enabled",
+  custom_widget_frames: "enabled",
+  streak_recovery: "enabled",
+  streakRecovery: "enabled",
+  streaks: "enabled",
+  streak: "enabled",
+  streak_visualizations: "enabled",
+  streak_badge: "enabled",
+  groups: "enabled",
+  private_mode: "enabled",
+  viewer_mode: "enabled",
+  close_friends: "enabled",
+  camera_filter_sheet: "enabled",
+  camera_filters: "enabled",
+  camera_filter: "enabled",
+  filter: "enabled",
+  filters: "enabled",
+  photo_filters: "enabled",
+  ai_filters: "enabled",
+  holiday_effects: "enabled",
+  holiday_filters: "enabled",
+  holiday_filter: "enabled",
+  ar_filters: "enabled",
+  face_filters: "enabled",
+  profile_cover: "enabled",
+  profile_cover_photo: "enabled",
+  profile_customization: "enabled"
+};
+
+// 3. UPSELL FEATURES SUPPRESSION (TẮT CÁC LỜI NHẮC MUA GÓI)
+const UPSELL_FEATURES = {
+  app_icon_picker: false,
+  camera_roll: false,
+  camera_theme: false,
+  locket_views: false,
+  remove_ads: false,
+  custom_widget_frames: false,
+  filter: false,
+  filters: false,
+  camera_filter: false,
+  camera_filters: false,
+  holiday_filter: false,
+  holiday_filters: false,
+  holiday_effects: false,
+  ai_filter: false,
+  ai_filters: false
+};
+
+// 4. PAYWALL PRESENTATION CONFIGURATION (TESTFLIGHT MODE BYPASS)
+const PAYWALL_PRESENTATION_CONFIG = {
+  uid: "paywall_testflight",
+  onboarding: false,
+  after_sent_moment: false,
+  after_moment: false,
+  after_capture: false,
+  on_foreground: false,
+  holiday_effects: false,
+  camera_filters: false,
+  camera_filter: false,
+  filters: false,
+  filter: false,
+  ai_filter: false,
+  ai_filters: false,
+  filtered_image: false,
+  filtered_images: false,
+  generate_filtered_image: false,
+  interval: 2592000, // 30 ngày
+  profile_banner: true
+};
+
+// 5. FEATURE DISCOVERY POPUP (THÔNG BÁO CHÚC MỪNG LÊN GOLD)
+const FEATURE_DISCOVERY_POPUP_CONFIG = {
+  tag: "LOCKET GOLD",
+  tag_gradient: true,
+  tag_style: "gold_gradient",
+  title: "Lên LocketGold rồi đó 😎",
+  feature_set: [
+    {
+      title: "Nhớ follow tiktok @ltocamz ✨",
+      body: "Một follow của bạn, một niềm vui của mình 💛",
+      imageURL: "https://locket-pro-backend.onrender.com/assets/gold_welcome.jpg"
+    }
+  ],
+  primary_button_title: "Xong",
+  campaign: "locket_gold_welcome_v3",
+  start_at: "2020-01-01T00:00:00",
+  end_at: "2099-12-31T23:59:59",
+  use_local_time_zone: true
+};
+
+// 6. CAMERA & CAMERA ROLL CONFIGURATION
+const CAMERA_CONFIG = {
+  gold_max_duration: MY_VIDEO_DURATION,
+  goldMaxDuration: MY_VIDEO_DURATION,
+  max_duration: MY_VIDEO_DURATION,
+  maxDuration: MY_VIDEO_DURATION,
+  ultra_wide: true,
+  ultraWide: true,
+  volume_button: true,
+  volumeButton: true,
+  flash_button: true,
+  telephoto: true,
+  srgb: true,
+  lanczos: true,
+  quality_mbps: QUALITY_MBPS,
+  qualityMbps: QUALITY_MBPS
+};
+
+const CAMERA_ROLL_CONFIG = {
+  gold_max_duration: MY_VIDEO_DURATION,
+  goldMaxDuration: MY_VIDEO_DURATION,
+  video_max_duration: MY_VIDEO_DURATION,
+  videoMaxDuration: MY_VIDEO_DURATION,
+  max_duration: MY_VIDEO_DURATION,
+  maxDuration: MY_VIDEO_DURATION,
+  trim_max_duration: MY_VIDEO_DURATION,
+  trimMaxDuration: MY_VIDEO_DURATION,
+  camera_roll_max_duration: MY_VIDEO_DURATION,
+  camera_roll_video_max_duration: MY_VIDEO_DURATION,
+  max_file_size: MAX_SIZE_BYTES,
+  max_upload_bytes: MAX_SIZE_BYTES,
+  max_size_bytes: MAX_SIZE_BYTES,
+  quality_mbps: QUALITY_MBPS,
+  qualityMbps: QUALITY_MBPS,
+  flash_button: true
+};
+
+// 7. CELEBRITY & LIVE PHOTOS CONFIGURATION
+const CELEBRITY_FILTER_CONFIG = {
+  celebrityUid: "locket_admin_custom",
+  cameraFilterConfig: null // Sẽ gán tham chiếu CAMERA_FILTER_CONFIG
+};
+
+const LIVE_PHOTOS_CONFIG = {
+  capture: true,
+  video: true,
+  viewing: true,
+  catch_up: true,
+  widget_looping_mode: "never"
+};
+
+// 8. HÀM CƯỠNG CHẾ VƯỢT GIỚI HẠN (FAILSAFE OVERRIDE)
+/**
+ * Cưỡng chế ghi đè các tham số video, trạng thái Gold và vô hiệu hóa rào cản paywall
+ * @param {Object} entries 
+ */
+function hamVaForceOverride(entries) {
+  if (!entries || typeof entries !== "object") return;
+
+  // Cưỡng chế thời lượng video tối đa thành 45.0 giây
+  const videoDurationKeys = [
+    "max_video_duration",
+    "video_max_duration",
+    "camera_roll_max_duration",
+    "camera_roll_video_max_duration",
+    "camera_roll_duration",
+    "video_trim_max_duration",
+    "trim_max_duration",
+    "gold_max_duration",
+    "goldMaxDuration"
+  ];
+  for (let i = 0; i < videoDurationKeys.length; i++) {
+    entries[videoDurationKeys[i]] = "45.0";
+  }
+
+  // Kích hoạt toàn bộ cờ Gold
+  entries["is_gold"] = "true";
+  entries["has_gold"] = "true";
+  entries["is_gold_user"] = "true";
+  entries["user_is_gold"] = "true";
+  entries["gold_user"] = "true";
+  entries["gold_active"] = "true";
+  entries["all_filters_free"] = "true";
+  entries["unlocked_filters"] = "true";
+  entries["free_filters_enabled"] = "true";
+  entries["filter_selection_enabled"] = "true";
+
+  // Tắt bỏ toàn bộ rào cản Gold & Paywall của bộ lọc
+  entries["require_gold_for_filters"] = "false";
+  entries["requires_gold_for_filters"] = "false";
+  entries["camera_filter_gold_only"] = "false";
+  entries["camera_filters_gold_only"] = "false";
+  entries["filter_gold_only"] = "false";
+  entries["filters_gold_only"] = "false";
+  entries["ai_filter_gold_only"] = "false";
+  entries["ai_filters_gold_only"] = "false";
+  entries["filter_paywall_enabled"] = "false";
+  entries["camera_filter_paywall_enabled"] = "false";
+  entries["filter_upsell_enabled"] = "false";
+
+  // Vô hiệu hóa bộ nhớ đệm (Cache TTL = 0) để luôn áp dụng cấu hình mới nhất
+  entries["cache_ttl_seconds"] = "0";
+  entries["client_cache_ttl_sec"] = "0";
+}
+
+// 9. MAIN EXECUTION PIPELINE
+(function main() {
+  const userAgent = (typeof $request !== "undefined" && $request && $request.headers)
+    ? ($request.headers["User-Agent"] || $request.headers["user-agent"] || "")
+    : "";
+
+  let obj = {};
+  try {
+    obj = JSON.parse($response.body);
+  } catch (err) {
+    obj = {};
+  }
+  if (!obj || typeof obj !== "object") {
+    obj = {};
+  }
+
+  // Cập nhật trạng thái phản hồi & metadata
+  obj.state = "UPDATE";
+  obj.templateVersion = String(Date.now());
+  obj.Attention = "Chúc mừng bạn! Vui lòng không bán hoặc chia sẻ cho người khác!";
+  obj.entries = obj.entries || {};
+
+  // Gán tham chiếu chéo cho celebrity config
+  CELEBRITY_FILTER_CONFIG.cameraFilterConfig = CAMERA_FILTER_CONFIG;
+
+  // 1. Áp dụng các cờ hệ thống nguyên thủy (tắt quảng cáo, tắt Sentry, mở bạn bè)
+  Object.assign(obj.entries, BASE_ENTRIES);
+
+  // 2. Chèn các cấu hình JSON phức tạp
+  Object.assign(obj.entries, {
+    feature_gates: JSON.stringify(FEATURE_GATES),
+    upsell_features: JSON.stringify(UPSELL_FEATURES),
+    paywall_presentation_config: JSON.stringify(PAYWALL_PRESENTATION_CONFIG),
+    feature_discovery_popup_config: JSON.stringify(FEATURE_DISCOVERY_POPUP_CONFIG),
+    camera: JSON.stringify(CAMERA_CONFIG),
+    camera_roll: JSON.stringify(CAMERA_ROLL_CONFIG),
+    camera_filter_config: JSON.stringify(CAMERA_FILTER_CONFIG),
+    celebrity_filter_config: JSON.stringify(CELEBRITY_FILTER_CONFIG),
+    live_photos: JSON.stringify(LIVE_PHOTOS_CONFIG),
+    friends_sheet_locket_count_config: JSON.stringify(FRIENDS_SHEET_LOCKET_COUNT_CONFIG),
+    friend_locket_count_config: JSON.stringify(FRIEND_LOCKET_COUNT_CONFIG),
+    widget_frame_event: JSON.stringify(WIDGET_FRAME_EVENT),
+    widget_frames_config: JSON.stringify(WIDGET_FRAMES_CONFIG),
+    widget_frame_styles: JSON.stringify(WIDGET_FRAME_STYLES),
+    seasonal_frames_config: JSON.stringify(SEASONAL_FRAMES_CONFIG),
+    journal_settings: JSON.stringify(JOURNAL_SETTINGS),
+    qr_code_config: JSON.stringify(QR_CODE_CONFIG),
+    share_history_config: JSON.stringify(SHARE_HISTORY_CONFIG),
+    overlays_v2_config: JSON.stringify(OVERLAYS_V2_CONFIG),
+    overlay_dynamic_captions: JSON.stringify(OVERLAY_DYNAMIC_CAPTIONS),
+    overlay_items: JSON.stringify(OVERLAY_ITEMS)
+  });
+
+  // 3. Xử lý Streak cấu hình nếu đã tồn tại từ phản hồi gốc
+  try {
+    const streak = JSON.parse(obj.entries.streak_config || "{}");
+    streak.enabled = true;
+    streak.show_streak = true;
+    streak.minimum_recovery_count = 0;
+    streak.minimum_display_count = 0;
+    obj.entries.streak_config = JSON.stringify(streak);
+  } catch (err) {}
+
+  // 4. Cưỡng chế các giới hạn video & vô hiệu hóa rào cản Gold
+  hamVaForceOverride(obj.entries);
+
+  // 5. Chuyển đổi thành chuỗi JSON & Gắn Token tài nguyên backend nếu có
+  let responseBody = JSON.stringify(obj);
+  const locketToken = (typeof __LOCKET_TOKEN__ !== "undefined" && __LOCKET_TOKEN__)
+    ? String(__LOCKET_TOKEN__)
+    : "";
+
+  if (locketToken) {
+    responseBody = responseBody.replace(
+      /(https:\/\/locket-pro-backend\.onrender\.com\/assets\/[^"\\?]+)/g,
+      "$1?token=" + encodeURIComponent(locketToken)
+    );
+  }
+
+  // 6. Trả về kết quả hoàn tất cho Proxy
+  $done({ body: responseBody });
+})();
